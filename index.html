@@ -8,30 +8,31 @@
     <title>GYM CAM Pro</title>
     <style>
         :root { --ios-bg: #000; --ios-panel: #121212; --ios-blue: #0b84ff; --ios-red: #ff3b30; }
-        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; color: white; font-family: -apple-system, system-ui; }
         
         #app { display: flex; flex-direction: column; height: 100vh; }
         #viewport { position: relative; flex: 1; overflow: hidden; }
         
-        /* 螢幕預覽濾鏡 */
         video#main-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; filter: grayscale(100%) contrast(1.4); }
-        
         #overlay-filter { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; background-image: url('assets/filter.png'); background-size: cover; background-position: center; }
 
-        .controls { height: 160px; background: var(--ios-panel); display: flex; justify-content: center; align-items: center; padding-bottom: env(safe-area-inset-bottom); z-index: 20; position: relative;}
+        .controls { height: 160px; background: var(--ios-panel); display: flex; justify-content: center; align-items: center; padding-bottom: env(safe-area-inset-bottom); z-index: 20; position: relative; }
         
-        /* REC 閃爍紅點 */
-        #rec-dot { position: absolute; top: 20px; color: var(--ios-red); font-size: 12px; font-weight: bold; display: none; align-items: center; gap: 5px; }
+        #rec-dot { position: absolute; top: 15px; color: var(--ios-red); font-size: 12px; font-weight: bold; display: none; align-items: center; gap: 5px; letter-spacing: 1px; }
         #rec-dot::before { content: ""; width: 8px; height: 8px; background: var(--ios-red); border-radius: 50%; animation: blink 1s infinite; }
-        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
-        .shutter-btn { width: 80px; height: 80px; border-radius: 50%; border: 4px solid white; display: flex; justify-content: center; align-items: center; }
+        .shutter-btn { width: 80px; height: 80px; border-radius: 50%; border: 4px solid white; display: flex; justify-content: center; align-items: center; transition: transform 0.2s; }
         .shutter-inner { width: 64px; height: 64px; background: white; border-radius: 50%; transition: all 0.2s; }
-        .recording .shutter-inner { background: var(--ios-red); transform: scale(0.6); border-radius: 8px; }
+        .recording .shutter-inner { background: var(--ios-red); transform: scale(0.65); border-radius: 8px; }
+        .recording .shutter-btn { transform: scale(1.2); }
+
+        /* Zoom 數值提示 */
+        #zoom-label { position: absolute; bottom: 180px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.5); padding: 4px 10px; border-radius: 10px; font-size: 12px; display: none; z-index: 30; }
 
         #preview-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: black; z-index: 100; display: none; flex-direction: column; }
-        canvas, video#preview-video { max-width: 100%; flex: 1; object-fit: contain; padding: 20px; }
+        canvas, video#preview-video { max-width: 100%; flex: 1; object-fit: contain; padding: 10px; }
         .preview-tools { height: 100px; display: flex; justify-content: space-between; align-items: center; padding: 0 40px; padding-bottom: env(safe-area-inset-bottom); background: var(--ios-panel); }
         .btn { font-size: 17px; cursor: pointer; color: white; }
         .btn-share { color: var(--ios-blue); font-weight: 600; }
@@ -42,9 +43,10 @@
         <div id="viewport">
             <video id="main-video" autoplay playsinline muted></video>
             <div id="overlay-filter"></div>
+            <div id="zoom-label">1.0x</div>
         </div>
         <div class="controls" id="controls-area">
-            <div id="rec-dot">REC</div>
+            <div id="rec-dot">REC 00:00</div>
             <div class="shutter-btn" id="shutter"><div class="shutter-inner"></div></div>
         </div>
     </div>
@@ -63,14 +65,14 @@
     <script>
         const video = document.getElementById('main-video');
         const shutter = document.getElementById('shutter');
-        const recCanvas = document.getElementById('rec-canvas');
-        const photoCanvas = document.getElementById('photo-canvas');
-        const previewVideo = document.getElementById('preview-video');
+        const zoomLabel = document.getElementById('zoom-label');
         const recDot = document.getElementById('rec-dot');
         const filterImg = new Image();
         filterImg.src = 'assets/filter.png';
 
-        let mediaRecorder, recordedChunks = [], isRecording = false, pressTimer, animationId, stream;
+        let mediaRecorder, recordedChunks = [], isRecording = false, pressTimer, animationId, stream, videoTrack;
+        let startY, currentZoom = 1, maxZoom = 1, minZoom = 1;
+        let startTime;
 
         async function init() {
             try {
@@ -79,76 +81,80 @@
                     audio: true
                 });
                 video.srcObject = stream;
-            } catch (e) { alert("需授權相機與麥克風"); }
+                videoTrack = stream.getVideoTracks()[0];
+
+                // 獲取相機縮放能力
+                const capabilities = videoTrack.getCapabilities();
+                if (capabilities.zoom) {
+                    minZoom = capabilities.zoom.min;
+                    maxZoom = capabilities.zoom.max;
+                }
+            } catch (e) { alert("請授權相機與麥克風"); }
         }
 
-        // --- 核心：手動像素處理函數 (保證黑白) ---
-        function applyGrayscale(ctx, w, h) {
-            const imageData = ctx.getImageData(0, 0, w, h);
-            const data = imageData.data;
-            for (let i = 0; i < data.length; i += 4) {
-                // 加權灰階 + 簡單對比增強
-                let avg = (data[i] * 0.3 + data[i + 1] * 0.59 + data[i + 2] * 0.11);
-                avg = 1.4 * (avg - 128) + 128; // 對比度
-                data[i] = data[i+1] = data[i+2] = Math.max(0, Math.min(255, avg));
-            }
-            ctx.putImageData(imageData, 0, 0);
+        // --- 縮放邏輯 ---
+        function applyZoom(zoomValue) {
+            if (!videoTrack || maxZoom === minZoom) return;
+            currentZoom = Math.min(Math.max(zoomValue, minZoom), maxZoom);
+            videoTrack.applyConstraints({ advanced: [{ zoom: currentZoom }] });
+            zoomLabel.innerText = currentZoom.toFixed(1) + 'x';
+            zoomLabel.style.display = 'block';
         }
 
-        function drawLoop() {
-            if (!isRecording) return;
-            const ctx = recCanvas.getContext('2d', { willReadFrequently: true });
-            recCanvas.width = 720; recCanvas.height = 1280;
-
-            // 1. 畫相機畫面
-            const vW = video.videoWidth, vH = video.videoHeight;
-            const cR = recCanvas.width / recCanvas.height, vR = vW / vH;
-            let sw, sh, sx, sy;
-            if (vR > cR) { sh = vH; sw = vH * cR; sx = (vW - sw) / 2; sy = 0; }
-            else { sw = vW; sh = vW / cR; sx = 0; sy = (vH - sh) / 2; }
-            
-            ctx.drawImage(video, sx, sy, sw, sh, 0, 0, recCanvas.width, recCanvas.height);
-            
-            // 2. 強制轉黑白 (這步解決了彩色問題)
-            applyGrayscale(ctx, recCanvas.width, recCanvas.height);
-            
-            // 3. 畫濾鏡文字
-            ctx.drawImage(filterImg, 0, 0, recCanvas.width, recCanvas.height);
-
-            animationId = requestAnimationFrame(drawLoop);
-        }
-
+        // --- 觸控事件 ---
         shutter.addEventListener('touchstart', (e) => {
             e.preventDefault();
+            startY = e.touches[0].clientY;
             pressTimer = setTimeout(startRecording, 400);
         });
 
+        window.addEventListener('touchmove', (e) => {
+            if (isRecording) {
+                const moveY = startY - e.touches[0].clientY;
+                const zoomStep = moveY / 150; // 控制縮放靈敏度
+                applyZoom(currentZoom + zoomStep);
+                startY = e.touches[0].clientY; // 更新起點使縮放平滑
+            }
+        }, { passive: false });
+
         shutter.addEventListener('touchend', (e) => {
             clearTimeout(pressTimer);
+            zoomLabel.style.display = 'none';
             if (isRecording) stopRecording(); else takeSnapshot();
         });
 
+        // --- 錄影與拍照 ---
         function startRecording() {
             isRecording = true;
+            startTime = Date.now();
+            updateRecTimer();
             recDot.style.display = 'flex';
             document.getElementById('controls-area').classList.add('recording');
             if (navigator.vibrate) navigator.vibrate(100);
 
             drawLoop();
-            const canvasStream = recCanvas.captureStream(30);
+            const canvasStream = document.getElementById('rec-canvas').captureStream(30);
             const audioTrack = stream.getAudioTracks()[0];
             if (audioTrack) canvasStream.addTrack(audioTrack);
 
-            // 錄影格式選擇，avc1 對 iOS 支援較好
             mediaRecorder = new MediaRecorder(canvasStream, { mimeType: 'video/mp4;codecs=avc1' });
             recordedChunks = [];
             mediaRecorder.ondataavailable = e => recordedChunks.push(e.data);
             mediaRecorder.onstop = () => {
                 const blob = new Blob(recordedChunks, { type: 'video/mp4' });
-                previewVideo.src = URL.createObjectURL(blob);
+                document.getElementById('preview-video').src = URL.createObjectURL(blob);
                 showPreview('video', blob);
             };
             mediaRecorder.start();
+        }
+
+        function updateRecTimer() {
+            if (!isRecording) return;
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+            const s = String(elapsed % 60).padStart(2, '0');
+            recDot.innerText = `REC ${m}:${s}`;
+            setTimeout(updateRecTimer, 1000);
         }
 
         function stopRecording() {
@@ -159,21 +165,47 @@
             mediaRecorder.stop();
         }
 
+        // (其餘 applyGrayscale, drawLoop, takeSnapshot, showPreview, shareFile 邏輯保持之前穩定版本不變)
+        function applyGrayscale(ctx, w, h) {
+            const imageData = ctx.getImageData(0, 0, w, h);
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                let avg = (data[i] * 0.3 + data[i + 1] * 0.59 + data[i + 2] * 0.11);
+                avg = 1.4 * (avg - 128) + 128;
+                data[i] = data[i+1] = data[i+2] = Math.max(0, Math.min(255, avg));
+            }
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function drawLoop() {
+            if (!isRecording) return;
+            const recCanvas = document.getElementById('rec-canvas');
+            const ctx = recCanvas.getContext('2d', { willReadFrequently: true });
+            recCanvas.width = 720; recCanvas.height = 1280;
+            const vW = video.videoWidth, vH = video.videoHeight;
+            const cR = recCanvas.width / recCanvas.height, vR = vW / vH;
+            let sw, sh, sx, sy;
+            if (vR > cR) { sh = vH; sw = vH * cR; sx = (vW - sw) / 2; sy = 0; }
+            else { sw = vW; sh = vW / cR; sx = 0; sy = (vH - sh) / 2; }
+            ctx.drawImage(video, sx, sy, sw, sh, 0, 0, recCanvas.width, recCanvas.height);
+            applyGrayscale(ctx, recCanvas.width, recCanvas.height);
+            ctx.drawImage(filterImg, 0, 0, recCanvas.width, recCanvas.height);
+            animationId = requestAnimationFrame(drawLoop);
+        }
+
         function takeSnapshot() {
             if (navigator.vibrate) navigator.vibrate(40);
+            const photoCanvas = document.getElementById('photo-canvas');
             const ctx = photoCanvas.getContext('2d');
             photoCanvas.width = 1080; photoCanvas.height = 1920;
-            
             const vW = video.videoWidth, vH = video.videoHeight;
             const cR = photoCanvas.width / photoCanvas.height, vR = vW / vH;
             let sw, sh, sx, sy;
             if (vR > cR) { sh = vH; sw = vH * cR; sx = (vW - sw) / 2; sy = 0; }
             else { sw = vW; sh = vW / cR; sx = 0; sy = (vH - sh) / 2; }
-
             ctx.drawImage(video, sx, sy, sw, sh, 0, 0, photoCanvas.width, photoCanvas.height);
             applyGrayscale(ctx, photoCanvas.width, photoCanvas.height);
             ctx.drawImage(filterImg, 0, 0, photoCanvas.width, photoCanvas.height);
-            
             showPreview('photo');
         }
 
@@ -181,10 +213,12 @@
             document.getElementById('preview-layer').style.display = 'flex';
             const sc = document.getElementById('share-btn-container');
             if (type === 'photo') {
-                photoCanvas.style.display = 'block'; previewVideo.style.display = 'none';
+                document.getElementById('photo-canvas').style.display = 'block';
+                document.getElementById('preview-video').style.display = 'none';
                 sc.innerHTML = `<div class="btn btn-share" onclick="shareFile('photo')">分享圖片</div>`;
             } else {
-                photoCanvas.style.display = 'none'; previewVideo.style.display = 'block';
+                document.getElementById('photo-canvas').style.display = 'none';
+                document.getElementById('preview-video').style.display = 'block';
                 sc.innerHTML = `<div class="btn btn-share" onclick="shareFile('video')">分享影片</div>`;
                 window.currentBlob = blob;
             }
@@ -193,7 +227,7 @@
         async function shareFile(type) {
             let file;
             if (type === 'photo') {
-                const blob = await new Promise(res => photoCanvas.toBlob(res, 'image/jpeg', 0.95));
+                const blob = await new Promise(res => document.getElementById('photo-canvas').toBlob(res, 'image/jpeg', 0.95));
                 file = new File([blob], "gym.jpg", { type: "image/jpeg" });
             } else {
                 file = new File([window.currentBlob], "gym.mp4", { type: "video/mp4" });
@@ -201,10 +235,7 @@
             if (navigator.share) await navigator.share({ files: [file] });
         }
 
-        function retake() {
-            document.getElementById('preview-layer').style.display = 'none';
-            previewVideo.pause(); previewVideo.src = "";
-        }
+        function retake() { document.getElementById('preview-layer').style.display = 'none'; document.getElementById('preview-video').pause(); }
 
         window.onload = init;
     </script>
