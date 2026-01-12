@@ -27,11 +27,33 @@
         .shutter-btn { width: 72px; height: 72px; border-radius: 50%; border: 4px solid white; display: flex; justify-content: center; align-items: center; }
         .shutter-inner { width: 58px; height: 58px; background: white; border-radius: 50%; }
 
-        #preview-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: black; z-index: 100; display: none; flex-direction: column; }
-        canvas { width: 100%; flex: 1; object-fit: contain; }
+        /* 預覽層修正 */
+        #preview-layer { 
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: black; z-index: 100; display: none; flex-direction: column; 
+        }
 
-        .preview-tools { height: 100px; display: flex; justify-content: space-between; align-items: center; padding: 0 40px; padding-bottom: env(safe-area-inset-bottom); background: var(--ios-panel); }
-        .btn { font-size: 17px; cursor: pointer; }
+        /* 讓 Canvas 在預覽時自動縮放，確保底部按鈕可見 */
+        canvas { 
+            width: 100%; 
+            flex: 1; 
+            object-fit: contain; 
+            padding: 20px; /* 留一點邊框感 */
+            max-height: calc(100vh - 120px); 
+        }
+
+        .preview-tools { 
+            height: 100px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            padding: 0 40px; 
+            padding-bottom: env(safe-area-inset-bottom); 
+            background: var(--ios-panel); 
+            width: 100%;
+        }
+
+        .btn { font-size: 17px; cursor: pointer; padding: 10px; }
         .btn-share { color: var(--ios-blue); font-weight: 600; }
         #flash { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; z-index: 50; pointer-events: none; }
     </style>
@@ -52,8 +74,8 @@
     <div id="preview-layer">
         <canvas id="canvas"></canvas>
         <div class="preview-tools">
-            <div class="btn" onclick="retake()">返回</div>
-            <div class="btn btn-share" onclick="sharePhoto()">分享 / 儲存</div>
+            <div class="btn" onclick="retake()">返回重拍</div>
+            <div class="btn btn-share" onclick="sharePhoto()">分享圖片</div>
         </div>
     </div>
 
@@ -72,24 +94,27 @@
                     audio: false
                 });
                 video.srcObject = stream;
-            } catch (e) { alert("請授權相機並使用 HTTPS"); }
+            } catch (e) { alert("請授權相機並使用 HTTPS 訪問"); }
         }
 
         function takeSnapshot() {
             if (navigator.vibrate) navigator.vibrate(40);
             flash.style.opacity = '1';
-            setTimeout(() => { flash.style.opacity = '0'; }, 100);
+            setTimeout(() => { 
+                flash.style.transition = 'opacity 0.4s';
+                flash.style.opacity = '0'; 
+                setTimeout(() => { flash.style.transition = 'none'; }, 400);
+            }, 50);
 
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
             
-            // 強制設定為 IG Story 標準尺寸
+            // 保持 1080x1920 解析度
             canvas.width = 1080;
             canvas.height = 1920;
 
             const videoW = video.videoWidth;
             const videoH = video.videoHeight;
             
-            // 計算裁切：在 1080x1920 畫布上模擬 object-fit: cover
             const canvasRatio = canvas.width / canvas.height;
             const videoRatio = videoW / videoH;
             let sWidth, sHeight, sx, sy;
@@ -106,21 +131,21 @@
                 sy = (videoH - sHeight) / 2;
             }
 
-            // 1. 先畫原始彩色圖
+            // 1. 畫底圖
             ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
             
-            // 2. 核心修正：手動像素黑白化 (解決 iOS ctx.filter 無效問題)
+            // 2. 像素級黑白處理 (保證彩色變黑白)
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const data = imageData.data;
             for (let i = 0; i < data.length; i += 4) {
                 const avg = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
-                data[i] = avg;     // R
-                data[i + 1] = avg; // G
-                data[i + 2] = avg; // B
+                data[i] = avg;
+                data[i + 1] = avg;
+                data[i + 2] = avg;
             }
             ctx.putImageData(imageData, 0, 0);
 
-            // 3. 疊加濾鏡 (此時不帶濾鏡，保持原色紅字)
+            // 3. 疊加濾鏡
             ctx.drawImage(filterImg, 0, 0, canvas.width, canvas.height);
 
             previewLayer.style.display = 'flex';
@@ -129,17 +154,16 @@
         function retake() { previewLayer.style.display = 'none'; }
 
         async function sharePhoto() {
-            const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+            const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
             const blob = await (await fetch(dataUrl)).blob();
             const file = new File([blob], "gym_snapshot.jpg", { type: "image/jpeg" });
             
             if (navigator.share) {
                 try { await navigator.share({ files: [file], title: 'GYM CAM' }); } catch(err){}
             } else {
-                const link = document.createElement('a');
-                link.download = 'gym_photo.jpg';
-                link.href = dataUrl;
-                link.click();
+                // 如果不支援分享，則在新窗口顯示供長按儲存
+                const win = window.open();
+                win.document.write('<p style="color:white;text-align:center;">長按圖片儲存至相簿</p><img src="' + dataUrl + '" style="width:100%">');
             }
         }
 
