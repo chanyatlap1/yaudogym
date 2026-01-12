@@ -14,12 +14,9 @@
         #app { display: flex; flex-direction: column; height: 100vh; }
         #viewport { position: relative; flex: 1; overflow: hidden; }
         
-        /* 螢幕預覽黑白 */
+        /* 螢幕預覽：始終保持正向（非鏡像） */
         video#main-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; filter: grayscale(100%) contrast(1.4); }
         
-        /* 當前置鏡頭開啟時，預覽畫面水平翻轉（像鏡子一樣） */
-        .mirror-mode { transform: scaleX(-1); }
-
         #overlay-filter { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; background-image: url('assets/filter.png'); background-size: cover; background-position: center; }
 
         /* Zoom 控制 */
@@ -109,12 +106,7 @@
                 });
                 video.srcObject = stream;
                 
-                // 設定預覽鏡像
-                if (currentFacingMode === "user") {
-                    video.classList.add('mirror-mode');
-                } else {
-                    video.classList.remove('mirror-mode');
-                }
+                // 完全移除 mirror 相關的 CSS 控制，保持正向
 
                 videoTrack = stream.getVideoTracks()[0];
                 const caps = videoTrack.getCapabilities();
@@ -172,8 +164,7 @@
             if (vR > cR) { sh = vH; sw = vH * cR; sx = (vW - sw) / 2; sy = 0; }
             else { sw = vW; sh = vW / cR; sx = 0; sy = (vH - sh) / 2; }
             
-            // 影相/錄影時，不再強制對前置鏡頭進行鏡像反轉，除非你想影出來也是反的。
-            // 這裡保持正向，這樣衣服上的文字影出來才是正的。
+            // 這裡直接繪製，不論前後鏡頭都不做 scale 翻轉
             ctx.drawImage(video, sx, sy, sw, sh, 0, 0, recCanvas.width, recCanvas.height);
             applyGrayscale(ctx, recCanvas.width, recCanvas.height);
             ctx.drawImage(filterImg, 0, 0, recCanvas.width, recCanvas.height);
@@ -225,8 +216,8 @@
             let sw, sh, sx, sy;
             if (vR > cR) { sh = vH; sw = vH * cR; sx = (vW - sw) / 2; sy = 0; }
             else { sw = vW; sh = vW / cR; sx = 0; sy = (vH - sh) / 2; }
-            
-            // 拍照同樣保持正向
+
+            // 拍照同樣直接繪製，不做翻轉
             ctx.drawImage(video, sx, sy, sw, sh, 0, 0, photoCanvas.width, photoCanvas.height);
             applyGrayscale(ctx, photoCanvas.width, photoCanvas.height);
             ctx.drawImage(filterImg, 0, 0, photoCanvas.width, photoCanvas.height);
