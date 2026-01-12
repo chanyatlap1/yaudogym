@@ -5,24 +5,35 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>GYM CAM</title>
+    <title>GYM CAM Pro</title>
     <style>
-        :root { --ios-bg: #000; --ios-panel: #121212; --ios-blue: #0b84ff; }
+        :root { --ios-bg: #000; --ios-panel: #121212; --ios-blue: #0b84ff; --ios-red: #ff3b30; }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; color: white; font-family: -apple-system, system-ui; }
+        
         #app { display: flex; flex-direction: column; height: 100vh; }
         #viewport { position: relative; flex: 1; overflow: hidden; }
         
-        /* 預覽：對比度設為 1.4 */
-        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; filter: grayscale(100%) contrast(1.4) brightness(1.1); }
+        /* 全域黑白復古濾鏡 */
+        .bw-filter { filter: grayscale(100%) contrast(1.4) brightness(1.1); }
+        video#main-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
         
         #overlay-filter { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; background-image: url('assets/filter.png'); background-size: cover; background-position: center; }
-        .controls { height: 140px; background: var(--ios-panel); display: flex; justify-content: center; align-items: center; padding-bottom: env(safe-area-inset-bottom); z-index: 20; }
-        .shutter-btn { width: 72px; height: 72px; border-radius: 50%; border: 4px solid white; display: flex; justify-content: center; align-items: center; }
-        .shutter-inner { width: 58px; height: 58px; background: white; border-radius: 50%; }
+
+        .controls { height: 160px; background: var(--ios-panel); display: flex; flex-direction: column; justify-content: center; align-items: center; padding-bottom: env(safe-area-inset-bottom); z-index: 20; }
+        .instruction { font-size: 12px; color: #888; margin-bottom: 15px; letter-spacing: 1px; }
+
+        .shutter-btn { width: 80px; height: 80px; border-radius: 50%; border: 4px solid white; display: flex; justify-content: center; align-items: center; position: relative; }
+        .shutter-inner { width: 64px; height: 64px; background: white; border-radius: 50%; transition: all 0.2s; }
         
+        /* 錄影狀態樣式 */
+        .recording .shutter-inner { background: var(--ios-red); transform: scale(0.6); border-radius: 8px; }
+        .recording .shutter-btn { border-color: rgba(255,255,255,0.3); }
+
         #preview-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: black; z-index: 100; display: none; flex-direction: column; }
-        canvas { width: 100%; flex: 1; object-fit: contain; padding: 20px; max-height: calc(100vh - 120px); }
+        #preview-content { flex: 1; width: 100%; display: flex; justify-content: center; align-items: center; overflow: hidden; position: relative; }
+        canvas, video#preview-video { max-width: 100%; max-height: 80vh; object-fit: contain; }
+
         .preview-tools { height: 100px; display: flex; justify-content: space-between; align-items: center; padding: 0 40px; padding-bottom: env(safe-area-inset-bottom); background: var(--ios-panel); width: 100%; }
         .btn { font-size: 17px; cursor: pointer; padding: 10px; }
         .btn-share { color: var(--ios-blue); font-weight: 600; }
@@ -33,125 +44,181 @@
     <div id="app">
         <div id="flash"></div>
         <div id="viewport">
-            <video id="video" autoplay playsinline></video>
+            <video id="main-video" class="bw-filter" autoplay playsinline></video>
             <div id="overlay-filter"></div>
         </div>
-        <div class="controls">
-            <div class="shutter-btn" onclick="takeSnapshot()"><div class="shutter-inner"></div></div>
+        <div class="controls" id="controls-area">
+            <div class="instruction">HOLD FOR VIDEO, TAP FOR PHOTO</div>
+            <div class="shutter-btn" id="shutter">
+                <div class="shutter-inner"></div>
+            </div>
         </div>
     </div>
+
     <div id="preview-layer">
-        <canvas id="canvas"></canvas>
+        <div id="preview-content">
+            <canvas id="photo-canvas" style="display:none;"></canvas>
+            <video id="preview-video" style="display:none;" controls playsinline class="bw-filter"></video>
+        </div>
         <div class="preview-tools">
             <div class="btn" onclick="retake()">返回重拍</div>
-            <div class="btn btn-share" onclick="sharePhoto()">分享圖片</div>
+            <div id="share-btn-container"></div>
         </div>
     </div>
 
     <script>
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
+        const video = document.getElementById('main-video');
+        const shutter = document.getElementById('shutter');
+        const controlsArea = document.getElementById('controls-area');
         const previewLayer = document.getElementById('preview-layer');
-        const flash = document.getElementById('flash');
+        const photoCanvas = document.getElementById('photo-canvas');
+        const previewVideo = document.getElementById('preview-video');
         const filterImg = new Image();
         filterImg.src = 'assets/filter.png';
 
+        let mediaRecorder;
+        let recordedChunks = [];
+        let pressTimer;
+        let isRecording = false;
+        let stream;
+
         async function init() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }, 
-                    audio: false
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
+                    audio: true
                 });
                 video.srcObject = stream;
-            } catch (e) { alert("請授權相機"); }
+            } catch (e) { alert("請授權相機與麥克風"); }
         }
+
+        // --- 拍照與錄影邏輯 ---
+
+        shutter.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            pressTimer = setTimeout(startRecording, 500); // 長按 0.5 秒開始錄影
+        });
+
+        shutter.addEventListener('touchend', (e) => {
+            clearTimeout(pressTimer);
+            if (isRecording) {
+                stopRecording();
+            } else {
+                takeSnapshot();
+            }
+        });
 
         function takeSnapshot() {
             if (navigator.vibrate) navigator.vibrate(40);
-            flash.style.opacity = '1';
-            setTimeout(() => { flash.style.transition = 'opacity 0.4s'; flash.style.opacity = '0'; }, 50);
+            document.getElementById('flash').style.opacity = '1';
+            setTimeout(() => { document.getElementById('flash').style.opacity = '0'; }, 100);
 
-            const ctx = canvas.getContext('2d', { willReadFrequently: true });
-            canvas.width = 1080;
-            canvas.height = 1920;
+            const ctx = photoCanvas.getContext('2d');
+            photoCanvas.width = 1080;
+            photoCanvas.height = 1920;
 
-            const videoW = video.videoWidth;
-            const videoH = video.videoHeight;
-            const canvasRatio = canvas.width / canvas.height;
-            const videoRatio = videoW / videoH;
-            let sWidth, sHeight, sx, sy;
+            // 裁剪與黑白處理邏輯 (保持之前的高對比算法)
+            const vW = video.videoWidth; const vH = video.videoHeight;
+            const cR = photoCanvas.width / photoCanvas.height;
+            const vR = vW / vH;
+            let sw, sh, sx, sy;
+            if (vR > cR) { sh = vH; sw = vH * cR; sx = (vW - sw) / 2; sy = 0; }
+            else { sw = vW; sh = vW / cR; sx = 0; sy = (vH - sh) / 2; }
 
-            if (videoRatio > canvasRatio) {
-                sHeight = videoH; sWidth = videoH * canvasRatio;
-                sx = (videoW - sWidth) / 2; sy = 0;
-            } else {
-                sWidth = videoW; sHeight = videoW / canvasRatio;
-                sx = 0; sy = (videoH - sHeight) / 2;
-            }
-
-            // 1. 繪製底圖
-            ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
+            ctx.drawImage(video, sx, sy, sw, sh, 0, 0, photoCanvas.width, photoCanvas.height);
+            applyRetroEffect(ctx);
             
-            // 2. 強化版黑白對比處理
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imageData.data;
-            
-            // 調高對比度數值 (原本 1.4，現在實測設定更高以匹配 CSS 視覺感)
-            const contrast = 60; // 範圍約 -255 到 255，60 是強對比
-            const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
-
-            for (let i = 0; i < data.length; i += 4) {
-                // 轉黑白
-                let avg = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
-                
-                // 應用對比度公式
-                avg = factor * (avg - 128) + 128;
-                
-                // 稍微提高亮度補償 (模擬螢幕 brightness(1.1))
-                avg = avg * 1.1;
-
-                // 防止數值溢出 0-255
-                if (avg > 255) avg = 255;
-                if (avg < 0) avg = 0;
-
-                data[i] = data[i + 1] = data[i + 2] = avg;
-            }
-            ctx.putImageData(imageData, 0, 0);
-
-            // 3. 繪製 Dust (保持之前的邏輯)
-            ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
-            for (let i = 0; i < 100; i++) {
-                const x = Math.random() * canvas.width;
-                const y = Math.random() * canvas.height;
-                const size = Math.random() * 2 + 0.5;
-                ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI * 2); ctx.fill();
-            }
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
-            for (let i = 0; i < 8; i++) {
-                const x = Math.random() * canvas.width;
-                const y = Math.random() * canvas.height;
-                ctx.beginPath(); ctx.moveTo(x, y);
-                ctx.lineTo(x + (Math.random() - 0.5) * 8, y + Math.random() * 60);
-                ctx.stroke();
-            }
-
-            // 4. 疊加濾鏡圖層
-            ctx.drawImage(filterImg, 0, 0, canvas.width, canvas.height);
-            previewLayer.style.display = 'flex';
+            showPreview('photo');
         }
 
-        function retake() { previewLayer.style.display = 'none'; }
-        async function sharePhoto() {
-            const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
-            const blob = await (await fetch(dataUrl)).blob();
-            const file = new File([blob], "gym_retro.jpg", { type: "image/jpeg" });
+        function applyRetroEffect(ctx) {
+            const imageData = ctx.getImageData(0, 0, photoCanvas.width, photoCanvas.height);
+            const data = imageData.data;
+            const contrast = 60;
+            const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+            for (let i = 0; i < data.length; i += 4) {
+                let avg = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+                avg = factor * (avg - 128) + 128;
+                avg = avg * 1.1;
+                data[i] = data[i+1] = data[i+2] = Math.min(255, Math.max(0, avg));
+            }
+            ctx.putImageData(imageData, 0, 0);
+            
+            // Dust 效果
+            ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+            for (let i = 0; i < 100; i++) {
+                ctx.beginPath();
+                ctx.arc(Math.random()*photoCanvas.width, Math.random()*photoCanvas.height, Math.random()*2+0.5, 0, Math.PI*2);
+                ctx.fill();
+            }
+            ctx.drawImage(filterImg, 0, 0, photoCanvas.width, photoCanvas.height);
+        }
+
+        function startRecording() {
+            isRecording = true;
+            recordedChunks = [];
+            controlsArea.classList.add('recording');
+            if (navigator.vibrate) navigator.vibrate([100]);
+
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(recordedChunks, { type: 'video/mp4' });
+                const url = URL.createObjectURL(blob);
+                previewVideo.src = url;
+                showPreview('video', blob);
+            };
+            mediaRecorder.start();
+        }
+
+        function stopRecording() {
+            isRecording = false;
+            controlsArea.classList.remove('recording');
+            if (navigator.vibrate) navigator.vibrate(50);
+            mediaRecorder.stop();
+        }
+
+        // --- 預覽與分享 ---
+
+        function showPreview(type, blob = null) {
+            previewLayer.style.display = 'flex';
+            const shareContainer = document.getElementById('share-btn-container');
+            
+            if (type === 'photo') {
+                photoCanvas.style.display = 'block';
+                previewVideo.style.display = 'none';
+                shareContainer.innerHTML = `<div class="btn btn-share" onclick="shareFile('photo')">分享圖片</div>`;
+            } else {
+                photoCanvas.style.display = 'none';
+                previewVideo.style.display = 'block';
+                shareContainer.innerHTML = `<div class="btn btn-share" onclick="shareFile('video')">分享影片</div>`;
+                window.currentVideoBlob = blob;
+            }
+        }
+
+        async function shareFile(type) {
+            let file;
+            if (type === 'photo') {
+                const dataUrl = photoCanvas.toDataURL("image/jpeg", 0.95);
+                const blob = await (await fetch(dataUrl)).blob();
+                file = new File([blob], "gym_retro.jpg", { type: "image/jpeg" });
+            } else {
+                file = new File([window.currentVideoBlob], "gym_video.mp4", { type: "video/mp4" });
+            }
+
             if (navigator.share) {
                 try { await navigator.share({ files: [file] }); } catch(err){}
             } else {
-                const win = window.open();
-                win.document.write('<img src="' + dataUrl + '" style="width:100%">');
+                alert("請長按預覽畫面儲存內容");
             }
         }
+
+        function retake() {
+            previewLayer.style.display = 'none';
+            previewVideo.pause();
+            previewVideo.src = "";
+        }
+
         window.onload = init;
     </script>
 </body>
