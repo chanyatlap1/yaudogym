@@ -16,7 +16,7 @@
         video#main-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; filter: grayscale(100%) contrast(1.4); }
         #overlay-filter { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; background-image: url('assets/filter.png'); background-size: cover; background-position: center; }
 
-        /* --- 橫向 Zoom Bar --- */
+        /* 橫向 Zoom Bar */
         #zoom-container {
             position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
             width: 70%; max-width: 300px; z-index: 40;
@@ -24,18 +24,11 @@
             background: rgba(0,0,0,0.5); padding: 8px 20px; border-radius: 20px;
             backdrop-filter: blur(8px);
         }
-        #zoom-slider {
-            flex: 1; -webkit-appearance: none; background: rgba(255,255,255,0.2);
-            height: 2px; border-radius: 2px;
-        }
-        #zoom-slider::-webkit-slider-thumb {
-            -webkit-appearance: none; width: 18px; height: 18px;
-            background: white; border-radius: 50%; border: 1px solid #666;
-        }
-        .zoom-text { font-size: 11px; font-weight: 600; color: #ccc; min-width: 25px; text-align: center; }
+        #zoom-slider { flex: 1; -webkit-appearance: none; background: rgba(255,255,255,0.2); height: 2px; border-radius: 2px; }
+        #zoom-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; background: white; border-radius: 50%; }
 
-        .controls { height: 160px; background: var(--ios-panel); display: flex; justify-content: center; align-items: center; padding-bottom: env(safe-area-inset-bottom); z-index: 20; position: relative; }
-        #rec-dot { position: absolute; top: 15px; color: var(--ios-red); font-size: 12px; font-weight: bold; display: none; align-items: center; gap: 5px; }
+        .controls { height: 160px; background: var(--ios-panel); display: flex; justify-content: space-around; align-items: center; padding: 0 30px; padding-bottom: env(safe-area-inset-bottom); z-index: 20; position: relative; }
+        #rec-dot { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); color: var(--ios-red); font-size: 12px; font-weight: bold; display: none; align-items: center; gap: 5px; }
         #rec-dot::before { content: ""; width: 8px; height: 8px; background: var(--ios-red); border-radius: 50%; animation: blink 1s infinite; }
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
@@ -43,14 +36,16 @@
         .shutter-inner { width: 64px; height: 64px; background: white; border-radius: 50%; transition: all 0.2s; }
         .recording .shutter-inner { background: var(--ios-red); transform: scale(0.6); border-radius: 8px; }
 
-        #preview-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: black; z-index: 100; display: none; flex-direction: column; }
-        #preview-content { flex: 1; width: 100%; display: flex; justify-content: center; align-items: center; padding: 20px; }
-        canvas, video#preview-video { max-width: 90%; max-height: 55vh; object-fit: contain; border-radius: 12px; border: 1px solid #333; }
+        /* 切換鏡頭按鈕 */
+        .switch-btn { width: 50px; height: 50px; background: rgba(255,255,255,0.1); border-radius: 50%; display: flex; justify-content: center; align-items: center; cursor: pointer; }
+        .switch-btn svg { width: 26px; height: 26px; fill: white; }
+        .placeholder { width: 50px; }
 
+        #preview-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: black; z-index: 100; display: none; flex-direction: column; }
+        #preview-content { flex: 1; width: 100%; display: flex; justify: center; align-items: center; padding: 20px; }
+        canvas, video#preview-video { max-width: 90%; max-height: 55vh; object-fit: contain; border-radius: 12px; border: 1px solid #333; }
         .preview-tools { height: 140px; display: flex; justify-content: space-between; align-items: center; padding: 0 50px; padding-bottom: env(safe-area-inset-bottom); background: var(--ios-panel); }
         .btn { font-size: 17px; cursor: pointer; color: white; }
-        .btn-share { color: var(--ios-blue); font-weight: 600; }
-        
         #zoom-label { position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.6); padding: 5px 12px; border-radius: 15px; font-size: 13px; font-weight: bold; display: none; z-index: 30; }
     </style>
 </head>
@@ -59,18 +54,17 @@
         <div id="viewport">
             <video id="main-video" autoplay playsinline muted></video>
             <div id="overlay-filter"></div>
-            
             <div id="zoom-container">
-                <div class="zoom-text">1x</div>
                 <input type="range" id="zoom-slider" min="1" max="5" step="0.1" value="1">
-                <div class="zoom-text" id="zoom-max-text">Max</div>
             </div>
-
             <div id="zoom-label">1.0x</div>
         </div>
         <div class="controls" id="controls-area">
             <div id="rec-dot">REC 00:00</div>
-            <div class="shutter-btn" id="shutter"><div class="shutter-inner"></div></div>
+            <div class="placeholder"></div> <div class="shutter-btn" id="shutter"><div class="shutter-inner"></div></div>
+            <div class="switch-btn" onclick="switchCamera()">
+                <svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
+            </div>
         </div>
     </div>
 
@@ -94,31 +88,41 @@
         const photoCanvas = document.getElementById('photo-canvas');
         const previewVideo = document.getElementById('preview-video');
         const recDot = document.getElementById('rec-dot');
-        const zoomLabel = document.getElementById('zoom-label');
         const zoomSlider = document.getElementById('zoom-slider');
         const filterImg = new Image();
         filterImg.src = 'assets/filter.png';
 
         let mediaRecorder, recordedChunks = [], isRecording = false, stream, animationId, pressTimer;
         let startY, currentZoom = 1, videoTrack, startTime;
+        let currentFacingMode = "environment"; // 預設後置
 
         async function initCamera() {
+            if (stream) { stream.getTracks().forEach(t => t.stop()); }
             try {
                 stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment", width: 1280, height: 720 },
+                    video: { facingMode: currentFacingMode, width: 1280, height: 720 },
                     audio: true
                 });
                 video.srcObject = stream;
                 videoTrack = stream.getVideoTracks()[0];
-
                 const caps = videoTrack.getCapabilities();
                 if (caps.zoom) {
+                    zoomSlider.parentElement.style.display = 'flex';
                     zoomSlider.min = caps.zoom.min;
                     zoomSlider.max = caps.zoom.max;
-                    zoomSlider.value = 1;
-                    document.getElementById('zoom-max-text').innerText = caps.zoom.max.toFixed(0) + 'x';
+                    zoomSlider.value = currentZoom;
+                } else {
+                    zoomSlider.parentElement.style.display = 'none';
                 }
-            } catch (e) { alert("請授權相機"); }
+            } catch (e) { alert("無法切換鏡頭"); }
+        }
+
+        function switchCamera() {
+            if (isRecording) return;
+            currentFacingMode = (currentFacingMode === "environment") ? "user" : "environment";
+            currentZoom = 1; // 切換鏡頭重置縮放
+            initCamera();
+            if (navigator.vibrate) navigator.vibrate(50);
         }
 
         function applyZoom(zoomValue) {
@@ -127,27 +131,25 @@
             if (caps.zoom) {
                 currentZoom = Math.min(Math.max(zoomValue, caps.zoom.min), caps.zoom.max);
                 videoTrack.applyConstraints({ advanced: [{ zoom: currentZoom }] });
-                zoomLabel.innerText = currentZoom.toFixed(1) + 'x';
-                zoomLabel.style.display = 'block';
+                document.getElementById('zoom-label').innerText = currentZoom.toFixed(1) + 'x';
+                document.getElementById('zoom-label').style.display = 'block';
                 zoomSlider.value = currentZoom;
-                
-                clearTimeout(window.zoomTimeout);
-                window.zoomTimeout = setTimeout(() => { zoomLabel.style.display = 'none'; }, 1500);
+                clearTimeout(window.zT); window.zT = setTimeout(() => { document.getElementById('zoom-label').style.display = 'none'; }, 1500);
             }
         }
 
-        zoomSlider.addEventListener('input', (e) => {
-            applyZoom(parseFloat(e.target.value));
-        });
+        zoomSlider.addEventListener('input', (e) => applyZoom(parseFloat(e.target.value)));
 
-        // 拍照錄影邏輯與 V7 相同
-        function updateTimer() {
-            if (!isRecording) return;
-            const elapsed = Math.floor((Date.now() - startTime) / 1000);
-            const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
-            const s = String(elapsed % 60).padStart(2, '0');
-            recDot.innerText = `REC ${m}:${s}`;
-            setTimeout(updateTimer, 1000);
+        // 拍照/錄影邏輯 (與 V7 相同，包含像素級黑白處理)
+        function applyGrayscale(ctx, w, h) {
+            const imgData = ctx.getImageData(0, 0, w, h);
+            const data = imgData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                let avg = (data[i] * 0.3 + data[i+1] * 0.59 + data[i+2] * 0.11);
+                avg = 1.4 * (avg - 128) + 128;
+                data[i] = data[i+1] = data[i+2] = Math.max(0, Math.min(255, avg));
+            }
+            ctx.putImageData(imgData, 0, 0);
         }
 
         function drawLoop() {
@@ -159,71 +161,52 @@
             let sw, sh, sx, sy;
             if (vR > cR) { sh = vH; sw = vH * cR; sx = (vW - sw) / 2; sy = 0; }
             else { sw = vW; sh = vW / cR; sx = 0; sy = (vH - sh) / 2; }
-            ctx.drawImage(video, sx, sy, sw, sh, 0, 0, recCanvas.width, recCanvas.height);
             
-            const imgData = ctx.getImageData(0, 0, recCanvas.width, recCanvas.height);
-            const data = imgData.data;
-            for (let i = 0; i < data.length; i += 4) {
-                let avg = (data[i] * 0.3 + data[i+1] * 0.59 + data[i+2] * 0.11);
-                avg = 1.4 * (avg - 128) + 128;
-                data[i] = data[i+1] = data[i+2] = Math.max(0, Math.min(255, avg));
+            // 如果是前鏡頭，需要左右鏡像繪製
+            if (currentFacingMode === "user") {
+                ctx.translate(recCanvas.width, 0);
+                ctx.scale(-1, 1);
             }
-            ctx.putImageData(imgData, 0, 0);
+
+            ctx.drawImage(video, sx, sy, sw, sh, 0, 0, recCanvas.width, recCanvas.height);
+            ctx.setTransform(1, 0, 0, 1, 0, 0); // 重置轉換
+            applyGrayscale(ctx, recCanvas.width, recCanvas.height);
             ctx.drawImage(filterImg, 0, 0, recCanvas.width, recCanvas.height);
             animationId = requestAnimationFrame(drawLoop);
         }
 
-        shutter.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            startY = e.touches[0].clientY;
-            pressTimer = setTimeout(startRecording, 400);
-        });
-
-        window.addEventListener('touchmove', (e) => {
-            if (isRecording) {
-                const moveY = startY - e.touches[0].clientY;
-                applyZoom(currentZoom + (moveY / 200));
-                startY = e.touches[0].clientY;
-            }
-        }, { passive: false });
-
-        shutter.addEventListener('touchend', (e) => {
-            clearTimeout(pressTimer);
-            if (isRecording) stopRecording(); else takeSnapshot();
-        });
+        shutter.addEventListener('touchstart', (e) => { e.preventDefault(); startY = e.touches[0].clientY; pressTimer = setTimeout(startRecording, 400); });
+        window.addEventListener('touchmove', (e) => { if (isRecording) { applyZoom(currentZoom + ((startY - e.touches[0].clientY) / 200)); startY = e.touches[0].clientY; } }, { passive: false });
+        shutter.addEventListener('touchend', (e) => { clearTimeout(pressTimer); if (isRecording) stopRecording(); else takeSnapshot(); });
 
         function startRecording() {
-            isRecording = true;
-            startTime = Date.now();
-            updateTimer();
+            isRecording = true; startTime = Date.now(); recDot.style.display = 'flex';
             document.getElementById('controls-area').classList.add('recording');
-            recDot.style.display = 'flex';
             if (navigator.vibrate) navigator.vibrate(100);
-
             drawLoop();
             const canvasStream = recCanvas.captureStream(30);
             const audioTrack = stream.getAudioTracks()[0];
             if (audioTrack) canvasStream.addTrack(audioTrack);
-
             mediaRecorder = new MediaRecorder(canvasStream, { mimeType: 'video/mp4;codecs=avc1' });
             recordedChunks = [];
             mediaRecorder.ondataavailable = e => recordedChunks.push(e.data);
             mediaRecorder.onstop = () => {
-                const blob = new Blob(recordedChunks, { type: 'video/mp4' });
-                previewVideo.src = URL.createObjectURL(blob);
-                showPreview('video', blob);
+                previewVideo.src = URL.createObjectURL(new Blob(recordedChunks, { type: 'video/mp4' }));
+                showPreview('video', new Blob(recordedChunks, { type: 'video/mp4' }));
                 if (stream) stream.getTracks().forEach(t => t.stop());
             };
             mediaRecorder.start();
+            updateTimer();
         }
 
-        function stopRecording() {
-            isRecording = false;
-            document.getElementById('controls-area').classList.remove('recording');
-            recDot.style.display = 'none';
-            cancelAnimationFrame(animationId);
-            mediaRecorder.stop();
+        function updateTimer() {
+            if (!isRecording) return;
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            recDot.innerText = `REC ${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
+            setTimeout(updateTimer, 1000);
         }
+
+        function stopRecording() { isRecording = false; document.getElementById('controls-area').classList.remove('recording'); recDot.style.display = 'none'; cancelAnimationFrame(animationId); mediaRecorder.stop(); }
 
         function takeSnapshot() {
             if (navigator.vibrate) navigator.vibrate(40);
@@ -234,16 +217,11 @@
             let sw, sh, sx, sy;
             if (vR > cR) { sh = vH; sw = vH * cR; sx = (vW - sw) / 2; sy = 0; }
             else { sw = vW; sh = vW / cR; sx = 0; sy = (vH - sh) / 2; }
+
+            if (currentFacingMode === "user") { ctx.translate(photoCanvas.width, 0); ctx.scale(-1, 1); }
             ctx.drawImage(video, sx, sy, sw, sh, 0, 0, photoCanvas.width, photoCanvas.height);
-            
-            const imgData = ctx.getImageData(0, 0, photoCanvas.width, photoCanvas.height);
-            const data = imgData.data;
-            for (let i = 0; i < data.length; i += 4) {
-                let avg = (data[i] * 0.3 + data[i+1] * 0.59 + data[i+2] * 0.11);
-                avg = 1.4 * (avg - 128) + 128;
-                data[i] = data[i+1] = data[i+2] = Math.max(0, Math.min(255, avg));
-            }
-            ctx.putImageData(imgData, 0, 0);
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            applyGrayscale(ctx, photoCanvas.width, photoCanvas.height);
             ctx.drawImage(filterImg, 0, 0, photoCanvas.width, photoCanvas.height);
             showPreview('photo');
             if (stream) stream.getTracks().forEach(t => t.stop());
@@ -262,12 +240,7 @@
             }
         }
 
-        function retake() {
-            document.getElementById('preview-layer').style.display = 'none';
-            previewVideo.pause();
-            currentZoom = 1;
-            initCamera().then(() => { applyZoom(1); });
-        }
+        function retake() { document.getElementById('preview-layer').style.display = 'none'; previewVideo.pause(); currentZoom = 1; initCamera().then(() => applyZoom(1)); }
 
         async function shareFile(type) {
             let file;
