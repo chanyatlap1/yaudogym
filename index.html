@@ -16,18 +16,23 @@
         video#main-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; filter: grayscale(100%) contrast(1.4); }
         #overlay-filter { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; background-image: url('assets/filter.png'); background-size: cover; background-position: center; }
 
-        /* 側邊 Zoom Bar */
-        #zoom-slider-container {
-            position: absolute; right: 20px; top: 50%; transform: translateY(-50%);
-            display: flex; flex-direction: column; align-items: center; z-index: 40;
-            background: rgba(0,0,0,0.3); padding: 15px 5px; border-radius: 20px;
-            backdrop-filter: blur(5px);
+        /* --- 橫向 Zoom Bar --- */
+        #zoom-container {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            width: 70%; max-width: 300px; z-index: 40;
+            display: flex; align-items: center; gap: 15px;
+            background: rgba(0,0,0,0.5); padding: 8px 20px; border-radius: 20px;
+            backdrop-filter: blur(8px);
         }
         #zoom-slider {
-            -webkit-appearance: slider-vertical;
-            width: 8px; height: 200px; background: rgba(255,255,255,0.3);
+            flex: 1; -webkit-appearance: none; background: rgba(255,255,255,0.2);
+            height: 2px; border-radius: 2px;
         }
-        .zoom-icon { font-size: 10px; margin: 5px 0; color: #aaa; font-weight: bold; }
+        #zoom-slider::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 18px; height: 18px;
+            background: white; border-radius: 50%; border: 1px solid #666;
+        }
+        .zoom-text { font-size: 11px; font-weight: 600; color: #ccc; min-width: 25px; text-align: center; }
 
         .controls { height: 160px; background: var(--ios-panel); display: flex; justify-content: center; align-items: center; padding-bottom: env(safe-area-inset-bottom); z-index: 20; position: relative; }
         #rec-dot { position: absolute; top: 15px; color: var(--ios-red); font-size: 12px; font-weight: bold; display: none; align-items: center; gap: 5px; }
@@ -46,7 +51,7 @@
         .btn { font-size: 17px; cursor: pointer; color: white; }
         .btn-share { color: var(--ios-blue); font-weight: 600; }
         
-        #zoom-label { position: absolute; bottom: 180px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.5); padding: 4px 10px; border-radius: 10px; font-size: 12px; display: none; z-index: 30; }
+        #zoom-label { position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.6); padding: 5px 12px; border-radius: 15px; font-size: 13px; font-weight: bold; display: none; z-index: 30; }
     </style>
 </head>
 <body>
@@ -55,10 +60,10 @@
             <video id="main-video" autoplay playsinline muted></video>
             <div id="overlay-filter"></div>
             
-            <div id="zoom-slider-container">
-                <div class="zoom-icon">+</div>
-                <input type="range" id="zoom-slider" min="1" max="5" step="0.1" value="1" orient="vertical">
-                <div class="zoom-icon">1x</div>
+            <div id="zoom-container">
+                <div class="zoom-text">1x</div>
+                <input type="range" id="zoom-slider" min="1" max="5" step="0.1" value="1">
+                <div class="zoom-text" id="zoom-max-text">Max</div>
             </div>
 
             <div id="zoom-label">1.0x</div>
@@ -111,11 +116,11 @@
                     zoomSlider.min = caps.zoom.min;
                     zoomSlider.max = caps.zoom.max;
                     zoomSlider.value = 1;
+                    document.getElementById('zoom-max-text').innerText = caps.zoom.max.toFixed(0) + 'x';
                 }
-            } catch (e) { alert("需授權相機"); }
+            } catch (e) { alert("請授權相機"); }
         }
 
-        // --- Zoom 核心邏輯 ---
         function applyZoom(zoomValue) {
             if (!videoTrack) return;
             const caps = videoTrack.getCapabilities();
@@ -124,11 +129,10 @@
                 videoTrack.applyConstraints({ advanced: [{ zoom: currentZoom }] });
                 zoomLabel.innerText = currentZoom.toFixed(1) + 'x';
                 zoomLabel.style.display = 'block';
-                zoomSlider.value = currentZoom; // 同步 Slider
+                zoomSlider.value = currentZoom;
                 
-                // 3秒後自動隱藏 label
                 clearTimeout(window.zoomTimeout);
-                window.zoomTimeout = setTimeout(() => { zoomLabel.style.display = 'none'; }, 2000);
+                window.zoomTimeout = setTimeout(() => { zoomLabel.style.display = 'none'; }, 1500);
             }
         }
 
@@ -136,7 +140,7 @@
             applyZoom(parseFloat(e.target.value));
         });
 
-        // --- 拍照與錄影邏輯 (與 V6 相同) ---
+        // 拍照錄影邏輯與 V7 相同
         function updateTimer() {
             if (!isRecording) return;
             const elapsed = Math.floor((Date.now() - startTime) / 1000);
@@ -208,7 +212,7 @@
                 const blob = new Blob(recordedChunks, { type: 'video/mp4' });
                 previewVideo.src = URL.createObjectURL(blob);
                 showPreview('video', blob);
-                if (stream) { stream.getTracks().forEach(t => t.stop()); }
+                if (stream) stream.getTracks().forEach(t => t.stop());
             };
             mediaRecorder.start();
         }
@@ -242,7 +246,7 @@
             ctx.putImageData(imgData, 0, 0);
             ctx.drawImage(filterImg, 0, 0, photoCanvas.width, photoCanvas.height);
             showPreview('photo');
-            if (stream) { stream.getTracks().forEach(t => t.stop()); }
+            if (stream) stream.getTracks().forEach(t => t.stop());
         }
 
         function showPreview(type, blob = null) {
@@ -258,14 +262,11 @@
             }
         }
 
-        // --- 重置邏輯 ---
         function retake() {
             document.getElementById('preview-layer').style.display = 'none';
             previewVideo.pause();
-            currentZoom = 1; // 重置 Zoom 數值
-            initCamera().then(() => {
-                applyZoom(1); // 確保相機啟動後強制回到 1x
-            });
+            currentZoom = 1;
+            initCamera().then(() => { applyZoom(1); });
         }
 
         async function shareFile(type) {
