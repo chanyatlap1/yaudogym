@@ -53,7 +53,7 @@
         <canvas id="canvas"></canvas>
         <div class="preview-tools">
             <div class="btn" onclick="retake()">返回</div>
-            <div class="btn btn-share" onclick="sharePhoto()">分享</div>
+            <div class="btn btn-share" onclick="sharePhoto()">分享 / 儲存</div>
         </div>
     </div>
 
@@ -68,56 +68,59 @@
         async function init() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }, 
+                    video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }, 
                     audio: false
                 });
                 video.srcObject = stream;
-            } catch (e) { alert("請授權相機"); }
+            } catch (e) { alert("請授權相機並使用 HTTPS"); }
         }
 
         function takeSnapshot() {
+            if (navigator.vibrate) navigator.vibrate(40);
             flash.style.opacity = '1';
             setTimeout(() => { flash.style.opacity = '0'; }, 100);
 
-            const ctx = canvas.getContext('2d');
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
             
-            // 獲取預覽區域的實際顯示尺寸
-            const viewRect = document.getElementById('viewport').getBoundingClientRect();
-            const dpr = window.devicePixelRatio || 1;
-            
-            // 設定畫布解析度為顯示區域的 2 倍以保證清晰
-            canvas.width = viewRect.width * dpr;
-            canvas.height = viewRect.height * dpr;
+            // 強制設定為 IG Story 標準尺寸
+            canvas.width = 1080;
+            canvas.height = 1920;
 
-            // 計算 Video 在 object-fit: cover 下的裁剪參數
             const videoW = video.videoWidth;
             const videoH = video.videoHeight;
-            const videoRatio = videoW / videoH;
+            
+            // 計算裁切：在 1080x1920 畫布上模擬 object-fit: cover
             const canvasRatio = canvas.width / canvas.height;
-
+            const videoRatio = videoW / videoH;
             let sWidth, sHeight, sx, sy;
 
             if (videoRatio > canvasRatio) {
-                // 影片比畫布寬，裁剪左右
                 sHeight = videoH;
                 sWidth = videoH * canvasRatio;
                 sx = (videoW - sWidth) / 2;
                 sy = 0;
             } else {
-                // 影片比畫布窄，裁剪上下
                 sWidth = videoW;
                 sHeight = videoW / canvasRatio;
                 sx = 0;
                 sy = (videoH - sHeight) / 2;
             }
 
-            // 1. 畫相機畫面 (黑白)
-            ctx.filter = "grayscale(100%) contrast(1.1)";
+            // 1. 先畫原始彩色圖
             ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
             
-            // 2. 畫濾鏡層
-            ctx.filter = "none";
-            // 這裡直接將 filterImg 填滿畫布，因為它的比例應該與 viewport 一致
+            // 2. 核心修正：手動像素黑白化 (解決 iOS ctx.filter 無效問題)
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                const avg = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+                data[i] = avg;     // R
+                data[i + 1] = avg; // G
+                data[i + 2] = avg; // B
+            }
+            ctx.putImageData(imageData, 0, 0);
+
+            // 3. 疊加濾鏡 (此時不帶濾鏡，保持原色紅字)
             ctx.drawImage(filterImg, 0, 0, canvas.width, canvas.height);
 
             previewLayer.style.display = 'flex';
@@ -128,12 +131,15 @@
         async function sharePhoto() {
             const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
             const blob = await (await fetch(dataUrl)).blob();
-            const file = new File([blob], "gym.jpg", { type: "image/jpeg" });
+            const file = new File([blob], "gym_snapshot.jpg", { type: "image/jpeg" });
+            
             if (navigator.share) {
-                try { await navigator.share({ files: [file] }); } catch(err){}
+                try { await navigator.share({ files: [file], title: 'GYM CAM' }); } catch(err){}
             } else {
-                const win = window.open();
-                win.document.write('<img src="' + dataUrl + '" style="width:100%">');
+                const link = document.createElement('a');
+                link.download = 'gym_photo.jpg';
+                link.href = dataUrl;
+                link.click();
             }
         }
 
